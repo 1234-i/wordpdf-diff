@@ -7,10 +7,38 @@
       <div class="text">
         文档相似度对比：<span>{{ similarity }}</span>
       </div>
+      <div class="upload-section">
+        <div class="upload-group">
+          <label>原文档：</label>
+          <input
+            type="file"
+            accept=".pdf,.docx"
+            @change="handleOldFileChange"
+            ref="oldFileInput"
+          />
+        </div>
+        <div class="upload-group">
+          <label>新文档：</label>
+          <input
+            type="file"
+            accept=".pdf,.docx"
+            @change="handleNewFileChange"
+            ref="newFileInput"
+          />
+        </div>
+        <button @click="compareDocuments" :disabled="!oldFile || !newFile" class="compare-btn">
+          开始对比
+        </button>
+      </div>
     </div>
     <div class="general-card">
-      <div class="comparison-list">
+      <div v-if="!oldSrc && !newSrc" class="upload-hint">
+        <p>请选择两个文档进行对比</p>
+        <p>支持格式：PDF、DOCX</p>
+      </div>
+      <div v-else class="comparison-list">
         <div v-if="oldSrc" class="old-box">
+          <div class="file-title">原文档: {{ oldFileName }}</div>
           <iframe v-if="oldType === 'pdf'" id="oldpdf" :src="oldSrc"></iframe>
           <div v-else class="docx-box" :style="oldStyle">
             <vue-office-docx
@@ -21,6 +49,7 @@
           </div>
         </div>
         <div v-if="newSrc" class="new-box">
+          <div class="file-title">新文档: {{ newFileName }}</div>
           <iframe v-if="newType === 'pdf'" id="newpdf" :src="newSrc"></iframe>
           <div v-else class="docx-box" :style="newStyle">
             <vue-office-docx
@@ -36,8 +65,8 @@
 </template>
 
 <script setup lang="ts">
-import VueOfficeDocx from "@vue-office/docx";
-import "@vue-office/docx/lib/index.css";
+import VueOfficeDocx from "@vue-office/docx/lib/v3/index.js";
+import "@vue-office/docx/lib/v3/index.css";
 import { ref, watchEffect, nextTick, onUnmounted } from "vue";
 import { diffDocument } from "../utils/index";
 
@@ -48,31 +77,63 @@ onUnmounted(() => {
   clearInterval(timer2);
 });
 
-const msgLoading = ref(true);
+const msgLoading = ref(false);
 
-// 判断文档类型
-const o = "/文档.docx";
-const n = "/文档new.docx";
-// const o = "/文档.pdf";
-// const n = "/文档new.pdf";
-const oldType = o.substr(-3) === "pdf" ? "pdf" : "docx";
-const newType = n.substr(-3) === "pdf" ? "pdf" : "docx";
-// 获取文档链接
-const origin = window.location.origin;
-const oldSrc =
-  oldType === "docx"
-    ? `${window.location.origin}${o}`
-    : `${origin}/pdfjs/web/viewer.html?file=${encodeURIComponent(
-        `${window.location.origin}${o}`
-      )}`;
-const newSrc =
-  newType === "docx"
-    ? `${window.location.origin}${n}`
-    : `${origin}/pdfjs/web/viewer.html?file=${encodeURIComponent(
-        `${window.location.origin}${n}`
-      )}`;
-console.log(oldSrc);
-console.log(newSrc);
+// 文件相关的响应式变量
+const oldFile = ref<File | null>(null);
+const newFile = ref<File | null>(null);
+const oldFileName = ref("");
+const newFileName = ref("");
+const oldType = ref("");
+const newType = ref("");
+const oldSrc = ref("");
+const newSrc = ref("");
+
+// 文件上传处理函数
+const handleOldFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (target.files && target.files[0]) {
+    oldFile.value = target.files[0];
+    oldFileName.value = target.files[0].name;
+    oldType.value = target.files[0].name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
+  }
+};
+
+const handleNewFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (target.files && target.files[0]) {
+    newFile.value = target.files[0];
+    newFileName.value = target.files[0].name;
+    newType.value = target.files[0].name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
+  }
+};
+
+// 开始对比文档
+const compareDocuments = () => {
+  if (!oldFile.value || !newFile.value) return;
+
+  msgLoading.value = true;
+
+  // 创建文件URL
+  const oldFileUrl = URL.createObjectURL(oldFile.value);
+  const newFileUrl = URL.createObjectURL(newFile.value);
+
+  // 设置文档源
+  const origin = window.location.origin;
+  oldSrc.value = oldType.value === "docx"
+    ? oldFileUrl
+    : `${origin}/pdfjs/web/viewer.html?file=${encodeURIComponent(oldFileUrl)}`;
+  newSrc.value = newType.value === "docx"
+    ? newFileUrl
+    : `${origin}/pdfjs/web/viewer.html?file=${encodeURIComponent(newFileUrl)}`;
+
+  console.log('Old file URL:', oldSrc.value);
+  console.log('New file URL:', newSrc.value);
+
+  // 重置对比状态
+  readyList.value = [false, false];
+  similarity.value = "100%";
+};
 
 // docx文档选择器|pdf的node节点
 let oldSelector: string | HTMLElement[] =
@@ -277,6 +338,66 @@ const renderedNew = () => {
   z-index: 9;
   background-color: #fff;
   border-bottom: 1px solid #999;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.upload-section {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+.upload-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.upload-group label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.upload-group input[type="file"] {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.compare-btn {
+  padding: 6px 16px;
+  background-color: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+.compare-btn:hover:not(:disabled) {
+  background-color: #40a9ff;
+}
+.compare-btn:disabled {
+  background-color: #d9d9d9;
+  cursor: not-allowed;
+}
+.upload-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #666;
+  font-size: 16px;
+}
+.upload-hint p {
+  margin: 10px 0;
+}
+.file-title {
+  padding: 8px 12px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
 }
 .similarity .text {
   line-height: 20px;
@@ -287,8 +408,8 @@ const renderedNew = () => {
   font-size: 16px;
 }
 .general-card {
-  margin-top: 63px;
-  height: calc(100vh - 63px);
+  margin-top: 100px;
+  height: calc(100vh - 100px);
   overflow: auto;
 }
 .comparison-list {
